@@ -14,14 +14,17 @@ def get_region_center(region_name):
 
     if response.status_code == 200:
         data = response.json()
-        for location in data:
-            if (location["addresstype"]) in ["city","town"]:
-                return (location["lat"],location["lon"])
+        #print(f"OSM output\n:{data}\n=====") ###Debugging
+        # for location in data:
+        #     if (location["addresstype"]) in ["city","town"]:
+        #         return (location["lat"],location["lon"])
+        return (data[0]["lat"], data[0]["lon"])
     else:
         print("Error:", response.status_code)
 
 
 def get_earthquakes(location,rad_in_miles=100):
+    print(f"Location lat/long: {location}")
     now=datetime.now()
     prev=now-timedelta(hours=24)
     
@@ -71,6 +74,11 @@ def format_quake_time(usgs_time):
 
 
 def create_notification(equakes):
+    #print(f"Equake info from usgs:{equakes}")
+
+    if not equakes:
+        return None
+
     n=len(equakes)
     if n==1:
         mag=equakes[0]["properties"]["mag"]
@@ -82,18 +90,63 @@ def create_notification(equakes):
         else:
             tsunami_str="is unlikely to"
 
-        message=f"Hi, this is GeoX! An earthquake has been detected {location}"
+        message=f"Hi, this is Geo-X! An earthquake has been detected {location}"
         message += f" of magnitude {mag} at {time_str}. It {tsunami_str} trigger a tsunami."
+
     elif n>1:
-        message="More"
-    else:
-        message=None
+        ### Of the n quakes, find the one with the biggest magnitude
+        max_mag=equakes[0]["properties"]["mag"]
+        imax=0
+        for i in range(1,n):
+            if equakes[i]["properties"]["mag"] > max_mag:
+                max_mag = equakes[i]["properties"]["mag"]
+                imax=i
+
+        tsunami=equakes[0]["properties"]["tsunami"]
+        for i in range(1,n):
+            tsunami = tsunami or equakes[i]["properties"]["tsunami"]
+
+        if tsunami==1:
+            tsunami_str="is likely to"
+        else:
+            tsunami_str="is unlikely to"
+
+        location=equakes[imax]["properties"]["place"]
+        time_str=format_quake_time(equakes[imax]["properties"]["time"])
+        message=f"Hi this is Geo-X! {n} earthquakes have been detected near your designated area in the last 24 hours. "
+        message += f"The strongest one, of magnitude {max_mag}, has been detected {location} at {time_str}. "
+        message += f"It {tsunami_str} trigger a tsunami."
 
     return message
 
-center=get_region_center(region_name="Los Angeles, CA")
+def text_to_speech(message):
+    endpoint="https://translate.google.com/translate_tts"
+    
+    params={
+        "ie":"UTF-8",
+        "client":"tw-ob",
+        #"q":"The strongest one, of magnitude 3.58, has been detected 56 km NNW of Charlotte Amalie, U.S. Virgin Islands  at 03:46 AM today. It is unlikely to trigger a tsunami.",
+        "q":message,
+        "tl":"en",
+        "textlen":len(message)
+    }
+
+    response=requests.get(url=endpoint, params=params)
+
+    if response.status_code==200:
+        with open("tts.mp3", "wb") as f:
+            f.write(response.content)
+    else:
+        print(f"Request to Google Translate failed with status code {response.status_code}")
+        print(response.text)
+
+    response.close()
+
+
+center=get_region_center(region_name="New Dehli, India")
 print(center)
 equakes=get_earthquakes(center)
 print(equakes)
 e_message=create_notification(equakes)
 print(e_message)
+text_to_speech(e_message)
